@@ -1,0 +1,828 @@
+Option Compare Database
+Dim holdPercComplete As Single
+
+
+Private Sub UpdateProgress(CurrentItem As Long, TotalItems As Long, taskName As String)
+    Dim PercComplete As Single
+    Dim intWidth As Integer
+   
+   Me.lblCurrentTask.Caption = taskName
+    'Validate data
+    If CurrentItem <= 0 Or TotalItems <= 0 Then
+        Me.imgProgress.Width = 0
+        Exit Sub
+    End If
+   
+    'Calculate the percentage complete
+    PercComplete = CurrentItem / TotalItems
+    If Int(PercComplete * 100) = Int(holdPercComplete * 100) Then
+        Exit Sub
+    End If
+    'Save it for comparison
+    holdPercComplete = PercComplete
+   
+    'Calculate how wide to make the progress bar
+    If (PercComplete * 100) Mod 5 = 0 Then
+        intWidth = (Me.BoxProgress.Width * PercComplete)
+        Me.imgProgress.Width = intWidth
+        DoEvents    'or Me.Repaint
+    End If
+ 
+End Sub
+
+Private Sub btnChoose_Click()
+Dim fDialog As Office.FileDialog
+Dim varFile As Variant
+
+
+        Set fDialog = Application.FileDialog(msoFileDialogFilePicker)
+        
+        With fDialog
+        
+              ' Allow user to make multiple selections in dialog box
+              .AllowMultiSelect = True
+        
+              ' Set the title of the dialog box.
+              .Title = "Please select one or more files"
+        
+              ' Clear out the current filters, and add our own.
+              .Filters.Clear
+              .Filters.Add "Access Databases", "*.xlsx"
+              .Filters.Add "Access Databases", "*.csv"
+              .Filters.Add "All Files", "*.*"
+        
+              ' Show the dialog box. If the .Show method returns True, the
+              ' user picked at least one file. If the .Show method returns
+              ' False, the user clicked Cancel.
+              If .Show = True Then
+        
+                 'Loop through each file selected and add it to our list box.
+                 Me.txtUploadSourcePath = .SelectedItems(1)
+                 Me.btnUpload.Visible = True
+                
+              Else
+                 MsgBox "You clicked Cancel in the file dialog box."
+                 Me.btnUpload.Visible = False
+              End If
+           End With
+
+
+
+End Sub
+
+Private Sub btnUpload_Click()
+    
+    Dim answer As Integer
+    
+    If Me.txtUploadSourcePath.Value = "" Or IsNull(Me.txtUploadSourcePath.Value) Then
+        MsgBox "Choose file to upload!", vbInformation
+        Exit Sub
+    End If
+    
+   Me.btnChoose.Enabled = False
+   Me.btnUpload.Enabled = False
+   
+   answer = MsgBox("Are you sure you want to update the record in your SQL table?", vbYesNo + vbQuestion, "Update Database")
+   
+    If answer = vbYes Then
+        Call uploadToSQL
+    Else
+        'do nothing
+        MsgBox "You cancelled the Update", vbInformation, "Cancelled Upload"
+        Me.btnChoose.Enabled = True
+        Me.btnUpload.Enabled = True
+    End If
+
+End Sub
+
+Public Sub uploadToSQL()
+       
+         
+    Dim counter As Integer
+    
+    Dim con As New ADODB.Connection
+    Dim rs As New ADODB.Recordset
+    Dim strPath As String
+    Dim intImportRow As Long
+    Dim strConnect As String
+    
+    
+    Dim server, username, password, table, database As String
+   
+    Dim WS_Count As Integer
+    Dim I As Integer
+    
+        strConnect = "DRIVER={ODBC Driver 13 for SQL Server};" & _
+        "Server= " & _
+        "Port=;" & _
+        "Option=;" & _
+        "Stmt=;" & _
+        "Database= ;" & _
+        "Uid= ;" & _
+        "Pwd= ;" & _
+        "Encrypt=yes;" & _
+        "TrustServerCertificate=no;" & _
+        "Connection Timeout=0"
+        
+
+
+        Dim wb As Excel.Workbook
+    
+        Set wb = Excel.Workbooks.Open(Me.txtUploadSourcePath.Value)
+
+         ' Set WS_Count equal to the number of worksheets in the active
+         ' workbook.
+         WS_Count = wb.Worksheets.Count
+
+         ' Begin the loop.
+         If con.State <> 1 Then
+
+            con.Open strConnect
+            
+         End If
+        
+        'this is the TRUSTED connection string
+                    
+         Set rs.ActiveConnection = con
+         
+            '***************************************
+            '/Table change
+            '/sql table variable
+            Dim performanceFunds As String
+            Dim performancePercentage As String
+            
+            performanceFunds = "performance_data_funds"
+            performancePercentage = "performance_data_percentage"
+            '***************************************
+         
+            '/delete records
+            con.Execute " Delete from [" & performanceFunds & "] " & _
+                        " DBCC CHECKIDENT ([" & performanceFunds & "], RESEED, 0) "
+                        
+            con.Execute " Delete from [" & performancePercentage & "] " & _
+                        " DBCC CHECKIDENT ([" & performancePercentage & "], RESEED, 0) "
+         
+'         For I = 1 To WS_Count
+'                        Call runProgressBar("START")
+            ' Insert your code here.
+            ' The following line shows how to reference a sheet within
+            ' the loop by displaying the worksheet name in a dialog box.
+            'MsgBox ActiveWorkbook.Worksheets(I).Name
+'            With Sheets(wb.Worksheets(I).Name)
+            Dim id As Integer
+            Dim fundId As Integer
+            Dim percentage As Double
+            Dim dateValue As String
+            
+            '/variable for performance data funds
+            Dim idNum_funds As Integer
+            Dim fundName As String
+            Dim sectorStrategy As String
+
+
+            
+'       With Sheets(wb.Worksheets(I).Name)
+        With wb.Worksheets("Consolidated Performance Data")
+            
+            '/row/column range variable
+            Dim lastColumn As Integer
+            Dim lastRow As Integer
+            
+            '/get the range of the workbook
+            lastRow = .Cells(Rows.Count, "A").End(xlUp).Row
+            lastColumn = .Cells(Columns.Count).End(xlToLeft).Column
+            
+            
+            Dim totCount As Long
+            Dim columnCount As Long
+            totCount = lastColumn + lastRow
+                    
+                
+''                '/loop of fund name
+                For colindx = 2 To lastColumn
+
+                    idNum_funds = idNum_funds + 1
+                    fundName = .Cells(2, colindx)
+                    sectorStrategy = .Cells(1, colindx)
+
+                    '/execute insert query in sql
+                    '/on performance_data_funds Table
+                    con.Execute "insert into [" & performanceFunds & "] " & _
+                                "(fund_name, sector_strategy) values('" & fundName & "' , ' " & sectorStrategy & "')"
+
+                    columnCount = columnCount + 1
+                    Call UpdateProgress(columnCount, totCount, fund_name + " " + sector_strategy)
+
+                Next colindx
+                
+
+                '/loop of percentage
+                For RowIndx = (lastRow - 3) To 6 Step -1
+                    For colindx = 2 To lastColumn
+
+                    id = id + 1
+'                    fundId = .Cells(2, colindx)
+                    fundId = (colindx - 1)
+                    percentage = .Cells(RowIndx, colindx)
+
+                    '/date format
+                    dateValue = .Cells(RowIndx, 1)
+                    dateArr = Split(dateValue, "/")
+                    monthSel = dateArr(0)
+                    daySel = dateArr(1)
+                    yearSel = dateArr(2)
+                    dateValue = yearSel + "-" + Format(monthSel, "00") + "-" + Format(daySel, "00")
+'                    If percentage = -0.98 And fundId = 45 Then
+'                        MsgBox
+'                    End If
+
+
+                        '/execute insert query in sql
+                        '/on performance_data_percentage Table
+
+
+                        '/****************************
+
+
+                        If percentage <> 0 Then
+
+                        con.Execute "insert into [" & performancePercentage & "]" & _
+                                    "(fund_id,peformance_percentage,peformance_date) " & _
+                                    " values (" & fundId & " , " & percentage & " , ' " & dateValue & "')"
+
+                        End If
+
+                        '/*****************************
+
+'
+                        Call UpdateProgress(columnCount, totCount, "Loading Records : " + dateValue)
+
+                    Next colindx
+
+                    columnCount = columnCount + 1
+
+                Next RowIndx
+ 
+'
+'            End With
+'            Call runProgressBar("UPLOAD")
+                         
+         End With
+         
+'    Next I
+         
+    Call UpdateProgress(totCount, totCount, "Successfully Added to SQL")
+    
+    wb.Close savechanges:=False
+    con.Close
+    Set con = Nothing
+'    Call runProgressBar("DONE")
+    Me.txtUploadSourcePath.Value = ""
+    MsgBox "Done Uploading!", vbInformation
+    Me.btnChoose.Enabled = True
+    Me.btnUpload.Enabled = True
+
+    Exit Sub
+    
+errH:
+
+        MsgBox Err.Description
+
+
+
+End Sub
+
+Private Sub Command112_Click()
+'On Error GoTo SubError
+
+        Dim con As New ADODB.Connection
+        Dim rsl As New ADODB.Recordset
+        Dim strConnect As String
+        
+        
+        'SQL variable
+        Dim SQL As String
+        
+        'Excel Variables
+        Dim xlApp As Excel.Application
+        Dim xlBook As Excel.Workbook
+        Dim xlSheet As Excel.Worksheet
+        Dim oRange As Excel.Range
+        'Pivot variables
+        Dim oTable As PivotTable
+        Dim oField As PivotField
+
+        
+        Dim item As String
+        
+        '*********************
+        'Connect to SQL Server
+        '***********************
+         strConnect = "DRIVER={ODBC Driver 13 for SQL Server};" & _
+        "Server= " & _
+        "Port=;" & _
+        "Option=;" & _
+        "Stmt=;" & _
+        "Database= ;" & _
+        "Uid= ;" & _
+        "Pwd= ;" & _
+        "Encrypt=yes;" & _
+        "TrustServerCertificate=no;" & _
+        "Connection Timeout=0"
+        
+        
+        'name = "Firstrate Saver"
+         If con.State <> 1 Then
+              'con.Open "Provider=SQLOLEDB;Data Source=EDP-JAIME\SQLEXPRESS;Initial Catalog=ruan_dbv2;Integrated Security=SSPI;"
+              con.Open strConnect
+         End If
+         
+         DoCmd.Hourglass (True)
+         
+        '**********************************
+        'SQL data to retrieve data from sql
+        '***********************************
+        
+        Dim table_Pfpercentage As String
+        Dim table_PfFundName As String
+        table_Pfpercentage = "performance_data_percentage"
+        table_PfFundName = "performance_data_funds"
+        
+        
+        
+       SQL = "SELECT " & _
+              "(peformance_date) AS Date, " & _
+                "fund_id, " & _
+                "fund_name, " & _
+                "sector_strategy, " & _
+                "sum(peformance_percentage/100) as Percentage, " & _
+                "concat((((Select round(Avg(peformance_percentage/100),4) from [" & table_Pfpercentage & "] where [" & table_PfFundName & "].id = [" & table_Pfpercentage & "].fund_id))*100),'%') as Average, " & _
+ _
+                "concat(((Select round(STDEVP(peformance_percentage/100),4) from [" & table_Pfpercentage & "] " & _
+                "where [" & table_PfFundName & "].id = [" & table_Pfpercentage & "].fund_id))*100,'%') as STD, " & _
+ _
+                "concat((Select round((Select (((Select (Avg(peformance_percentage/100)) from [" & table_Pfpercentage & "] " & _
+                "where [" & table_PfFundName & "].id = [" & table_Pfpercentage & "].fund_id))/((Select (STDEVP(peformance_percentage/100)) from [" & table_Pfpercentage & "] " & _
+                "where [" & table_PfFundName & "].id = [" & table_Pfpercentage & "].fund_id))/100)*12),4))*100,'%') as Total " & _
+ _
+                "from [" & table_PfFundName & "] LEFT JOIN [" & table_Pfpercentage & "] " & _
+ _
+                "ON " & table_PfFundName & ".id = " & table_Pfpercentage & ".fund_id " & _
+ _
+                "GROUP BY  peformance_date, " & table_PfFundName & ".id, fund_name, fund_id, sector_strategy " & _
+ _
+                "order by Date DESC "
+        
+        '******************************
+
+        'open database
+        'Execute query and populate recordset
+        rsl.Open SQL, con
+         
+         If rsl.RecordCount = 0 Then
+            MsgBox "No Data selected", vbInformation + vbOKOnly + "No data exported"
+            GoTo SubExit
+         End If
+         
+         If rsl.EOF Or rsl.EOF Then
+                 MsgBox "No Data selected", vbInformation + vbOKOnly + "No data exported"
+                 GoTo SubExit
+          End If
+        
+        
+         '***********************
+         'Build Spreadsheet
+         '***********************
+         
+         Set xlApp = Excel.Application
+         xlApp.Visible = False
+         Set xlBook = xlApp.Workbooks.Add
+         Set xlSheet = xlBook.Worksheets(1)
+         
+        With xlSheet
+            .Name = "Report"
+            .Cells.Font.Name = "Calibri"
+            
+            'Set heading rows
+            For cols = 0 To rsl.Fields.Count - 1
+                .Cells(1, cols + 1).Value = UCase(rsl.Fields(cols).Name)
+            Next
+'            .Cells.EntireColumn.AutoFit
+            'copy data from recordsheet to sheet
+            .Range("A2").CopyFromRecordset rsl
+            
+        End With
+        
+        
+        
+        
+         '***********************
+         'Setting Pivot
+         '***********************
+         
+        Set oTable = xlSheet.PivotTableWizard
+        '/set alignment to center
+        oTable.TableRange2.HorizontalAlignment = xlCenter
+        oTable.TableRange2.VerticalAlignment = xlCenter
+        
+        '/the date field extraction
+        Set oField = oTable.PivotFields("Date")
+        With oField
+            .Orientation = xlRowField
+            .AutoSort xlDescending, "Date"
+            .Caption = "Sharpe/Month"
+            .NumberFormat = "dd-mmm-yy"
+        End With
+        
+        '/the percentage field extraction
+        Set oField = oTable.PivotFields("Percentage")
+        With oField
+            .Orientation = xlDataField
+            .Function = xlSum
+            .NumberFormat = "0.##%"
+            .Position = 1
+            
+            
+            With .DataRange
+                .Cells.FormatConditions.Delete
+                '*****************************************
+                'Conditional formatting on values per cell
+                '*****************************************
+                '/if greater than 10
+                .FormatConditions.Add Type:=xlCellValue, Operator:=xlGreaterEqual, _
+                    Formula1:="=0.11"
+                    With .FormatConditions(1)
+                        .Interior.Color = vbYellow
+                        .StopIfTrue = False
+'                        .ScopeType = xlDataFieldScope
+                    End With
+                '/cell value between 5.01 to 10
+                .FormatConditions.Add Type:=xlCellValue, Operator:=xlBetween, _
+                    Formula1:="=0.0501", Formula2:="=0.10"
+                    With .FormatConditions(2)
+                         .Interior.ColorIndex = 5
+                         .Font.Color = vbWhite
+                         .StopIfTrue = False
+'                        .ScopeType = xlDataFieldScope
+                    End With
+                '/cell value between 2.01 to 5
+                .FormatConditions.Add Type:=xlCellValue, Operator:=xlBetween, _
+                    Formula1:="=0.0201", Formula2:="=0.05"
+                    With .FormatConditions(3)
+                         .Interior.ColorIndex = 33
+                         .StopIfTrue = False
+'                        .ScopeType = xlDataFieldScope
+                    End With
+                '/cell value between 0 to 2
+                .FormatConditions.Add Type:=xlCellValue, Operator:=xlBetween, _
+                    Formula1:="=0", Formula2:="=0.02"
+                    With .FormatConditions(4)
+                         .Interior.Color = vbWhite
+                         .StopIfTrue = False
+'                        .ScopeType = xlDataFieldScope
+                    End With
+                '/cell value less than -10
+                .FormatConditions.Add Type:=xlCellValue, Operator:=xlLessEqual, _
+                    Formula1:="=-0.11"
+                    With .FormatConditions(5)
+                         .Interior.ColorIndex = 1
+                         .Font.Color = vbWhite
+                         .StopIfTrue = False
+'                        .ScopeType = xlDataFieldScope
+                    End With
+                '/cell value between -5 to -10
+                .FormatConditions.Add Type:=xlCellValue, Operator:=xlBetween, _
+                    Formula1:="=-0.0501", Formula2:="=-0.10"
+                    With .FormatConditions(6)
+                         .Interior.ColorIndex = 3
+                         .StopIfTrue = False
+'                        .ScopeType = xlDataFieldScope
+                    End With
+                '/cell value between -2.01 to -5
+                .FormatConditions.Add Type:=xlCellValue, Operator:=xlBetween, _
+                    Formula1:="=-0.0201", Formula2:="=-0.05"
+                    With .FormatConditions(7)
+                         .Interior.ColorIndex = 46
+                         .StopIfTrue = False
+'                        .ScopeType = xlDataFieldScope
+                    End With
+                '/cell value between -0.01 to -2
+                .FormatConditions.Add Type:=xlCellValue, Operator:=xlBetween, _
+                    Formula1:="=-0.0001", Formula2:="=-0.02"
+                    With .FormatConditions(8)
+                         .Interior.ColorIndex = 40
+                         .StopIfTrue = False
+'                        .ScopeType = xlDataFieldScope
+                    End With
+                
+             End With
+        End With
+
+        '***********************
+                '/the sector strategy field extraction
+'                Dim pi As PivotItem
+'        Set oField = oTable.PivotFields("fund_id")
+'        With oField
+'            .Orientation = xlColumnField
+'            .AutoSort xlAscending, "fund_id"
+'            .Subtotals(1) = False
+'
+'        End With
+'
+        
+        '***********************
+        '/the sector strategy field extraction
+        Set oField = oTable.PivotFields("sector_strategy")
+        With oField
+            .Orientation = xlColumnField
+            .Subtotals(1) = False
+        End With
+        
+        '/the fund name field extraction
+        Set oField = oTable.PivotFields("fund_name")
+        With oField
+            .Orientation = xlColumnField
+            .Subtotals(1) = False
+        End With
+        
+        '/the Average field extraction
+        Set oField = oTable.PivotFields("Average")
+        With oField
+            .Orientation = xlColumnField
+'            .NumberFormat = "0.##%"
+            .Subtotals(1) = False
+        End With
+        
+        '/the STDev field extraction
+        Set oField = oTable.PivotFields("STD")
+        With oField
+            .Orientation = xlColumnField
+'          .NumberFormat = "0.##%"
+            .Subtotals(1) = False
+        End With
+        
+        '/the fund name field extraction
+        Set oField = oTable.PivotFields("Total")
+        With oField
+            .Orientation = xlColumnField
+'            .NumberFormat = "0.##%"
+        End With
+  
+
+
+        '/Formatting table after pivot table is extracted
+        With oTable
+'            .TableRange2.ColumnWidth = 15
+            .ColumnRange.ColumnWidth = 4
+            .TableRange2.WrapText = True
+            .TableRange2.Font.Size = 8
+            .RowRange.Interior.Color = vbYellow
+            .RowRange.Borders.Weight = xlThin
+            .ColumnRange.Interior.Color = vbYellow
+            .ColumnRange.Font.Size = 10
+            .ColumnRange.Font.Bold = True
+            .TableRange2.Range("d1:bc1").Interior.Color = vbBlack
+            .TableRange2.Range("A1").Interior.Color = vbBlack
+            .TableRange2.Range("A2:A3").Interior.Color = vbYellow
+            .TableRange2.Range("A1").Font.Color = vbWhite
+            .TableRange2.Range("A1").Value = "Filter Category >>>"
+            .TableRange2.Range("B1:C1").Interior.ColorIndex = 46
+            .DataBodyRange.Borders.Weight = xlThin
+            .TableRange2.Range("A4:A6").Interior.ColorIndex = 8
+            .TableRange2.Range("A1:A6").Borders.Weight = xlThin
+            .ColumnGrand = False
+            .RowGrand = False
+            .ColumnRange.Rows.AutoFit
+            .TableRange2.Range("b4:bc6").Interior.ColorIndex = 8
+
+            
+        End With
+        
+        '/Adding label to worksheet
+        With xlBook.Worksheets("Sheet2").Shapes
+                .AddLabel(msoTextOrientationHorizontal, _
+                0, 25, 85, 50) _
+                .TextFrame.Characters.Text = "Sector/Strategy"
+        
+                .AddLabel(msoTextOrientationHorizontal, _
+                5, 75, 68, 50) _
+                .TextFrame.Characters.Text = "Fund Name"
+                
+                .AddLabel(msoTextOrientationHorizontal, _
+                1, 137, 75, 100) _
+                .TextFrame.Characters.Text = "Average M/R"
+
+                
+                .AddLabel(msoTextOrientationHorizontal, _
+                15, 154, 60, 150) _
+                .TextFrame.Characters.Text = "Std Dev"
+
+
+
+
+
+        End With
+      
+                '****************************
+        
+SubExit:
+On Error Resume Next
+    DoCmd.Hourglass False
+    xlApp.Visible = True
+    Exit Sub
+
+SubError:
+    MsgBox "Error Number: " & Err.Number & " - " & Err.Description, vbCritical + vbOKOnly, "An Error occured"
+    GoTo SubExit
+        
+
+End Sub
+
+Private Sub Command127_Click()
+'On Error GoTo SubError
+
+        Dim con As New ADODB.Connection
+        Dim rsl As New ADODB.Recordset
+        Dim strConnect As String
+
+        
+        'SQL variable
+        Dim SQL As String
+      
+        Dim item As String
+        
+        '*********************
+        'Connect to SQL Server
+        '***********************
+         strConnect = "DRIVER={ODBC Driver 13 for SQL Server};" & _
+        "Server= " & _
+        "Port= ;" & _
+        "Option= ;" & _
+        "Stmt=;" & _
+        "Database= " & _
+        "Uid= " & _
+        "Pwd= " & _
+        "Encrypt=yes;" & _
+        "TrustServerCertificate=no;" & _
+        "Connection Timeout=0"
+        
+        
+        '/name = "Firstrate Saver"
+         If con.State <> 1 Then
+              con.Open strConnect
+         End If
+         
+         '/Check if value field are not empty
+         If Me.fund_name1.Value <> "" And Me.sector_strategy1.Value <> "" Then
+         
+          
+          '/Query to insert record
+            SQL = "INSERT INTO [performance_data_funds] (fund_name, sector_strategy) " & _
+                "VALUES('" & Me.fund_name1.Value & "','" & Me.sector_strategy1.Value & "')"
+
+            '/Execute Input record
+            con.Execute SQL
+            
+                '/Check if recorded
+                If Err <> 0 Then
+                    MsgBox "There was an error", , "Error"
+                Else
+                    MsgBox "Added Record Successfully", , "Success"
+                    Me.fund_name1.Value = ""
+                    Me.sector_strategy1.Value = ""
+                End If
+                
+        
+         Else
+         
+            MsgBox "Please complete the form", , "Incomplete Record"
+            
+         End If
+         
+
+
+                 
+'
+'SubExit:
+'On Error Resume Next
+'    DoCmd.Hourglass False
+'    xlApp.Visible = True
+'    Exit Sub
+'
+'SubError:
+'    MsgBox "Error Number: " & Err.Number & " - " & Err.Description, vbCritical + vbOKOnly, "An Error occured"
+'    GoTo SubExit
+         
+End Sub
+
+Private Sub Command128_Click()
+'On Error GoTo SubError
+
+        Dim con As New ADODB.Connection
+        Dim rsl As New ADODB.Recordset
+        Dim strConnect As String
+        Dim dateFormat, yearV, monthV, dayV As String
+
+        
+        'SQL variable
+        Dim SQL As String
+      
+        Dim item As String
+        
+        '*********************
+        'Connect to SQL Server
+        '***********************
+         strConnect = "DRIVER={ODBC Driver 13 for SQL Server};" & _
+        "Server= ;" & _
+        "Port= ;" & _
+        "Option= " & _
+        "Stmt=;" & _
+        "Database= " & _
+        "Uid= " & _
+        "Pwd= ;" & _
+        "Encrypt=yes;" & _
+        "TrustServerCertificate=no;" & _
+        "Connection Timeout=0"
+        
+        
+        'name = "Firstrate Saver"
+         If con.State <> 1 Then
+              con.Open strConnect
+         End If
+         
+         DoCmd.Hourglass (True)
+         
+         
+    '/set date format
+    dateFormat = Format(Me.Date.Value, "mm-dd-yyyy")
+    dateArr = Split(dateFormat, "-")
+    monthV = dateArr(0)
+    dayV = dateArr(1)
+    yearV = dateArr(2)
+    dateFormat = yearV + "-" + Format(monthV, "00") + "-" + Format(dayV, "00")
+    
+         
+         If Me.cmbFundName.Value <> "" And Me.txtID.Value <> "" And Me.percentage.Value <> "" And Me.Date.Value <> "" Then
+                
+
+          
+            SQL = "INSERT INTO [performance_data_percentage] (fund_id, peformance_percentage, peformance_date) " & _
+                "VALUES('" & Me.txtID.Value & "','" & Me.percentage.Value & "','" & dateFormat & "')"
+            
+            con.Execute SQL
+            
+                If Err <> 0 Then
+                    MsgBox "There was an error", , "Error"
+                Else
+                    MsgBox "Add Record Successfully!", , "Success"
+                    Me.percentage.Value = ""
+                    Me.Date.Value = ""
+                End If
+                
+        
+         Else
+         
+            MsgBox "Please complete the form", , "Incomplete Record"
+            
+         End If
+                 
+         
+SubExit:
+On Error Resume Next
+    DoCmd.Hourglass False
+    xlApp.Visible = True
+    Exit Sub
+
+SubError:
+    MsgBox "Error Number: " & Err.Number & " - " & Err.Description, vbCritical + vbOKOnly, "An Error occured"
+    GoTo SubExit
+End Sub
+
+Private Sub fName_Change()
+
+End Sub
+
+
+
+Private Sub Form_Load()
+    Call UpdateProgress(0, 0, " ")
+    Me.txtUploadSourcePath.Value = ""
+End Sub
+
+Private Sub Print_performance_history_Click()
+    'Dim ReportName
+    'ReportName = "Performance History report Query"
+    
+        'DoCmd.OpenReport ReportName:=ReportName, _
+            'view:=acViewPreview, _
+           'WhereCondition:="[fund_name]=" & """ & Me.fund_name_select & """
+End Sub
+
+Private Sub TabCtl21_Click()
+
+
+End Sub
+
+Private Sub txtID_Click()
+    
+End Sub

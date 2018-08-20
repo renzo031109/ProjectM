@@ -1,0 +1,292 @@
+        private SqlConnection con = new SqlConnection("Data Source=;Initial Catalog=;User ID=;Password=");
+
+        private string ReportAllQuery()
+        {
+            string query = @"SELECT
+                             peformance_date,
+                             fund_id,
+                             fund_name,
+                             sector_strategy,
+
+                             sum(peformance_percentage/100) as Percentage,
+
+                             concat((((Select round(Avg(peformance_percentage/100),4) from [performance_data_percentage] where [performance_data_funds].id = [performance_data_percentage].fund_id))*100),'%') as Average,
+
+                             concat(((Select round(STDEVP(peformance_percentage/100),4) from [performance_data_percentage]
+                             where [performance_data_funds].id = [performance_data_percentage].fund_id))*100,'%') as STD,
+
+                             concat((Select round((Select (((Select (Avg(peformance_percentage/100)) from [performance_data_percentage]
+                             where [performance_data_funds].id = [performance_data_percentage].fund_id))/((Select (STDEVP(peformance_percentage/100)) from [performance_data_percentage]
+                             where [performance_data_funds].id = [performance_data_percentage].fund_id))/100)*12),4))*100,'%') as Total
+
+                             from [performance_data_funds] 
+                             LEFT JOIN [performance_data_percentage]
+
+                             ON performance_data_funds.id = performance_data_percentage.fund_id
+
+                             GROUP BY  peformance_date, performance_data_funds.id, fund_name, fund_id, sector_strategy
+
+                             order by peformance_date DESC";
+
+            return query;
+        } 
+        private void ReportAllExcelFile()
+        {
+
+            // Cursor to change hourglass
+            Cursor.Current = Cursors.WaitCursor;
+
+            lblPrintAll.Text = "10% 'Connecting to Server...Please wait...";
+
+
+            // Create and assign data to datatable
+            DataTable dt = new DataTable();
+
+            if (con.State == ConnectionState.Closed)
+                con.Open();
+
+            using (SqlCommand cmd = new SqlCommand(ReportAllQuery(), con))
+            {
+                using (SqlDataAdapter da = new SqlDataAdapter(cmd))
+                {
+                    da.Fill(dt);
+                }
+            }
+
+            lblPrintAll.Text = "45% 'Creating Excel File...Please wait...";
+
+
+            // Create Excel Application
+            Excel.Application xlApp = new Excel.Application();
+            Excel.Workbook xlBook = xlApp.Workbooks.Add();
+            Excel.Worksheet xlSheet = (Excel.Worksheet)xlBook.ActiveSheet;
+
+            // Creating Datasource from data table
+            int ColumnsCount;
+            if (dt == null || (ColumnsCount = dt.Columns.Count) == 0)
+                throw new Exception("ExportToExcel: Null or empty input table!\n");
+
+            object[] Header = new object[ColumnsCount];
+
+            // column headings               
+            for (int i = 0; i < ColumnsCount; i++)
+                Header[i] = dt.Columns[i].ColumnName;
+
+            xlSheet.Name = "Data Source";
+            Microsoft.Office.Interop.Excel.Range HeaderRange = xlSheet.get_Range((Microsoft.Office.Interop.Excel.Range)(xlSheet.Cells[1, 1]), (Microsoft.Office.Interop.Excel.Range)(xlSheet.Cells[1, ColumnsCount]));
+            HeaderRange.Value = Header;
+            HeaderRange.Interior.Color = System.Drawing.ColorTranslator.ToOle(System.Drawing.Color.LightGray);
+            HeaderRange.Font.Bold = true;
+
+            // DataCells
+            int RowsCount = dt.Rows.Count;
+            object[,] Cells = new object[RowsCount, ColumnsCount];
+
+            for (int j = 0; j < RowsCount; j++)
+                for (int i = 0; i < ColumnsCount; i++)
+                    Cells[j, i] = dt.Rows[j][i];
+
+            // Get the range of the source table
+            xlSheet.get_Range((Microsoft.Office.Interop.Excel.Range)(xlSheet.Cells[2, 1]), (Microsoft.Office.Interop.Excel.Range)(xlSheet.Cells[RowsCount + 1, ColumnsCount])).Value = Cells;
+
+            lblPrintAll.Text = "60% 'Creating Pivot Table...Please wait...";
+
+            // Create the Pivot table
+            Excel.Worksheet sheet2 = xlBook.Sheets.Add(); // Added new sheet to create Pivot Table
+            sheet2.Name = "Pivot Table"; // Assigned sheet Name
+            sheet2.Activate();
+
+            // Get the data from the data source and place it in the pivot table
+            Excel.Range oRange = xlSheet.UsedRange;
+            Excel.PivotCache oPivotCache = (Excel.PivotCache)xlBook.PivotCaches().Add(Excel.XlPivotTableSourceType.xlDatabase, oRange);  // Set the Source data range from First sheet
+            Excel.Range oRange2 = sheet2.Cells[1, 1];
+            Excel.PivotCaches pch = xlBook.PivotCaches();
+            pch.Add(Microsoft.Office.Interop.Excel.XlPivotTableSourceType.xlDatabase, oRange).CreatePivotTable(sheet2.Cells[1, 1], "PivTbl_1", Type.Missing, Type.Missing);// Create Pivot table
+            Excel.PivotTable pvt = sheet2.PivotTables("PivTbl_1") as Excel.PivotTable;
+
+            pvt.ShowDrillIndicators = false;  // Used to remove the Expand/ Collapse Button from each cell
+
+            // create Pivot Field, note that name will be the same as column name on sheet one            
+            Excel.PivotField performanceDate = (Excel.PivotField)pvt.PivotFields("peformance_date");
+            performanceDate.Orientation = Excel.XlPivotFieldOrientation.xlRowField;
+            performanceDate.Name = "Sharpe/Month";
+            performanceDate.NumberFormat = "dd-MMM-yy";
+
+            Excel.PivotField sectorStrategy = (Excel.PivotField)pvt.PivotFields("sector_strategy");
+            sectorStrategy.Orientation = Excel.XlPivotFieldOrientation.xlColumnField;
+            sectorStrategy.Name = "Sector Strategy";
+
+            Excel.PivotField fundName = (Excel.PivotField)pvt.PivotFields("fund_name");
+            fundName.Orientation = Excel.XlPivotFieldOrientation.xlColumnField;
+            fundName.Name = "FundName";
+
+
+            Excel.PivotField average = (Excel.PivotField)pvt.PivotFields("Average");
+            average.Orientation = Excel.XlPivotFieldOrientation.xlColumnField;
+            average.Name = "Average";
+            average.NumberFormat = "0.00%";
+
+
+            Excel.PivotField std = (Excel.PivotField)pvt.PivotFields("STD");
+            std.Orientation = Excel.XlPivotFieldOrientation.xlColumnField;
+            std.Name = "STDEVP";
+            std.NumberFormat = "0.00%";
+
+
+            Excel.PivotField total = (Excel.PivotField)pvt.PivotFields("Total");
+            total.Orientation = Excel.XlPivotFieldOrientation.xlColumnField;
+            total.Name = "Average/Month";
+            total.NumberFormat = "0.00%";
+
+
+            Excel.PivotField percentage = (Excel.PivotField)pvt.PivotFields("Percentage");
+            percentage.Orientation = Excel.XlPivotFieldOrientation.xlDataField;
+            percentage.Function = Excel.XlConsolidationFunction.xlSum;
+            percentage.NumberFormat = "0.00%";
+
+            lblPrintAll.Text = "85% 'Formatting Pivot Table...Please wait...";
+
+            // Get the pivot table body range
+            Microsoft.Office.Interop.Excel.Range range = (Microsoft.Office.Interop.Excel.Range)pvt.DataBodyRange;
+
+            // Conditional Formatting on datas
+            // if Greater than 10
+            Excel.FormatCondition condition1 = range.FormatConditions.Add(
+                Type: Excel.XlFormatConditionType.xlCellValue,
+                Operator: Excel.XlFormatConditionOperator.xlGreaterEqual,
+                Formula1: "=0.11");
+            condition1.Interior.ColorIndex = 6; // yellow
+            condition1.StopIfTrue = false;
+
+            // if value between 5.01 to 10
+            Excel.FormatCondition condition2 = range.FormatConditions.Add(
+                Type: Excel.XlFormatConditionType.xlCellValue,
+                Operator: Excel.XlFormatConditionOperator.xlBetween,
+                Formula1: "=0.0501",
+                Formula2: "=0.10");
+            condition2.Interior.ColorIndex = 5; // Blue
+            condition2.Font.Color = Color.White;
+            condition2.StopIfTrue = false;
+
+            // if value between 2.01 to 5
+            Excel.FormatCondition condition3 = range.FormatConditions.Add(
+                Type: Excel.XlFormatConditionType.xlCellValue,
+                Operator: Excel.XlFormatConditionOperator.xlBetween,
+                Formula1: "=0.0201",
+                Formula2: "=0.05");
+            condition3.Interior.ColorIndex = 33; // skyBlue
+            condition3.StopIfTrue = false;
+
+            // if value between 0 to 2
+            Excel.FormatCondition condition4 = range.FormatConditions.Add(
+                Type: Excel.XlFormatConditionType.xlCellValue,
+                Operator: Excel.XlFormatConditionOperator.xlBetween,
+                Formula1: "=0",
+                Formula2: "=0.02");
+            condition4.Interior.ColorIndex = 2; // white
+            condition4.StopIfTrue = false;
+
+            // if value less than -10
+            Excel.FormatCondition condition5 = range.FormatConditions.Add(
+                Type: Excel.XlFormatConditionType.xlCellValue,
+                Operator: Excel.XlFormatConditionOperator.xlLessEqual,
+                Formula1: "=-0.11");
+            condition5.Interior.ColorIndex = 1; // black
+            condition5.Font.Color = Color.White;
+            condition5.StopIfTrue = false;
+
+            // if value less than -5 to -10
+            Excel.FormatCondition condition6 = range.FormatConditions.Add(
+                Type: Excel.XlFormatConditionType.xlCellValue,
+                Operator: Excel.XlFormatConditionOperator.xlBetween,
+                Formula1: "=-0.0501",
+                Formula2: "=-0.10");
+            condition6.Interior.ColorIndex = 3; // red
+            condition6.StopIfTrue = false;
+
+            // if value less than -2.01 to -5
+            Excel.FormatCondition condition7 = range.FormatConditions.Add(
+                Type: Excel.XlFormatConditionType.xlCellValue,
+                Operator: Excel.XlFormatConditionOperator.xlBetween,
+                Formula1: "=-0.0201",
+                Formula2: "=-0.05");
+            condition7.Interior.ColorIndex = 46;
+            condition7.StopIfTrue = false;
+
+            // if value less than -0.01 to -2
+            Excel.FormatCondition condition8 = range.FormatConditions.Add(
+                Type: Excel.XlFormatConditionType.xlCellValue,
+                Operator: Excel.XlFormatConditionOperator.xlBetween,
+                Formula1: "=-0.0001",
+                Formula2: "=-0.02");
+            condition8.Interior.ColorIndex = 40; // white
+            condition8.StopIfTrue = false;
+
+            lblPrintAll.Text = "90% 'Almost done...Please wait...";
+
+            // Sort Pivot table by date
+            ((Excel.PivotField)pvt.PivotFields("Sharpe/Month")).AutoSort((int)Excel.XlSortOrder.xlDescending, "Sharpe/Month");
+
+            //// Remove Subtotals
+            for (int index = 1; index < 13; index++) { try { sectorStrategy.set_Subtotals(index, false); } catch (Exception) { } }
+            for (int index = 1; index < 13; index++) { try { fundName.set_Subtotals(index, false); } catch (Exception) { } }
+            for (int index = 1; index < 13; index++) { try { average.set_Subtotals(index, false); } catch (Exception) { } }
+            for (int index = 1; index < 13; index++) { try { std.set_Subtotals(index, false); } catch (Exception) { } }
+            for (int index = 1; index < 13; index++) { try { total.set_Subtotals(index, false); } catch (Exception) { } }
+
+            // Add Columnrange properties
+            pvt.ColumnRange.ColumnWidth = 7;
+            pvt.ColumnRange.Font.Size = 10;
+            pvt.ColumnRange.Font.Bold = true;
+            pvt.ColumnRange.Interior.Color = Color.Yellow;
+            pvt.ColumnRange.Rows.AutoFit();
+
+            // Add Datarange properties
+            pvt.DataBodyRange.Borders.Weight = XLSXBorderLineStyle.Thin;
+
+            // Add Rowrange properties
+            pvt.RowRange.Interior.Color = Color.Yellow;
+            pvt.RowRange.Borders.Weight = XLSXBorderLineStyle.Thin;
+
+            // Adding Format in pivot table
+            // Table range properties
+            pvt.TableRange2.HorizontalAlignment = Microsoft.Office.Interop.Excel.XlHAlign.xlHAlignCenter;
+            pvt.TableRange2.VerticalAlignment = Microsoft.Office.Interop.Excel.XlHAlign.xlHAlignCenter;
+            pvt.TableRange2.WrapText = true;
+            pvt.TableRange2.Font.Size = 8;
+            pvt.TableRange2.Range["A1"].Interior.Color = Color.Black;
+            pvt.TableRange2.Range["A2", "A3"].Interior.Color = Color.Yellow;
+            pvt.TableRange2.Range["A1"].Font.Color = Color.White;
+            pvt.TableRange2.Range["A1"].Value = "Filter Category >>>";
+            pvt.TableRange2.Range["A4", "A6"].Interior.ColorIndex = 8;
+            pvt.TableRange2.Range["A1", "A6"].Borders.Weight = XLSXBorderLineStyle.Thin;
+
+            // Highlights formulas
+            pvt.TableRange2.Range["b4", "bc6"].Interior.ColorIndex = 8;
+            pvt.TableRange2.Range["d1", "bc1"].Interior.Color = Color.Black;
+            pvt.TableRange2.Range["B1", "C1"].Interior.ColorIndex = 46;
+
+            // Remove Grand totals
+            pvt.RowGrand = false;
+            pvt.ColumnGrand = false;
+
+            lblPrintAll.Text = "100% 'Done...";
+
+            // Adding label to worksheet
+            sheet2.Shapes.AddLabel(MsoTextOrientation.msoTextOrientationHorizontal, 1, 25, 85, 50).TextFrame2.TextRange.Text = "Sector Name";
+            sheet2.Shapes.AddLabel(MsoTextOrientation.msoTextOrientationHorizontal, 5, 60, 68, 50).TextFrame2.TextRange.Text = "Fund Name";
+            sheet2.Shapes.AddLabel(MsoTextOrientation.msoTextOrientationHorizontal, 1, 90, 75, 100).TextFrame2.TextRange.Text = "Average M/R";
+            sheet2.Shapes.AddLabel(MsoTextOrientation.msoTextOrientationHorizontal, 15, 106, 60, 150).TextFrame2.TextRange.Text = "Std Dev";
+            
+            lblPrintAll.Text = "Openning...";
+
+
+            lblPrintAll.Text = "";
+
+            xlApp.Visible = true;
+
+            // Close the connection
+            con.Close();
+
+            Cursor.Current = Cursors.Default;
+        }
